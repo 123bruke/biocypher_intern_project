@@ -200,7 +200,7 @@ pluggy==1.6.0
     # via
     #   biocypher-metta (pyproject.toml)
     #   pytest
-pooch==1.8.2
+pooch==1.9.0
     # via
     #   biocypher-metta (pyproject.toml)
     #   biocypher
