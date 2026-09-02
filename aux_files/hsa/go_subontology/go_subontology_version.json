@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-08-27T17:36:35.570148",
+  "processor": "go_subontology",
+  "entries": 48340,
+  "dependency_file": "ontology_dataset_cache/go_meta.json",
+  "dependency_mtime": "2026-08-27T17:36:30.098248",
+  "dependency_signature": {
+    "version": "2026-07-26",
+    "hash": "6923202dec02ca16b2f6e27501750b5f"
+  }
+}

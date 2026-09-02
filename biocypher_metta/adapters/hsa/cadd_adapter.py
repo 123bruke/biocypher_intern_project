@@ -1,0 +1,67 @@
+# Author Abdulrahman S. Omar <xabush@singularitynet.io>
+from biocypher_metta.adapters import Adapter
+import csv
+import gzip
+from biocypher_metta.adapters.helpers import check_genomic_location, build_regulatory_region_id
+from biocypher._logger import logger
+
+#Example CADD Data
+# rsid,chromosome,position,reference_allele,alternate_allele,raw_cadd_score,phred_score
+# rs10,chr7,92383888,A,C,0.223125,6.177
+# rs10,chr7,92383888,A,G,0.245354,6.489
+# rs10,chr7,92383888,A,T,0.227741,6.243
+# rs1000000,chr12,126890980,G,A,0.042237,3.295
+# rs1000000,chr12,126890980,G,C,-0.017686,2.365
+
+class CADDAdapter(Adapter):
+    """
+    Adapter for CADD data
+    """
+    def __init__(self, filepath, dbsnp_rsid_map,
+                 write_properties, add_provenance,  label,
+                 chr=None, start=None, end=None):
+        self.file_path = filepath
+        self.dbsnp_rsid_map = dbsnp_rsid_map
+        self.chr = chr
+        self.start = start
+        self.end = end
+        self.label = label
+
+        self.label = label
+        self.source = "CADD"
+        self.source_url = "https://forgedb.cancer.gov/api/cadd/v1.0/cadd.forgedb.csv.gz"
+
+        super(CADDAdapter, self).__init__(write_properties, add_provenance)
+
+    def get_nodes(self):
+        with gzip.open(self.file_path, "rt") as fp:
+            next(fp)
+            reader = csv.reader(fp, delimiter=",")
+            not_processed = 0
+            processed = 0
+            for row in reader:
+                try:
+                    rsid = row[0]
+                    pos = self.dbsnp_rsid_map[rsid]["pos"]
+                    chr = row[1]
+                    _props = {}
+                    if check_genomic_location(self.chr, self.start, self.end, chr, pos, pos):
+                        if self.write_properties:
+                            _props = {
+                                'raw_cadd_score': float(row[5]),
+                                'phred_score': float(row[6])
+                            }
+                            if self.add_provenance:
+                                _props['source'] = self.source
+                                _props['source_url'] = self.source_url
+                        processed += 1
+                        yield rsid, self.label, _props
+                    else:
+                        not_processed += 1
+                except KeyError as e:
+                    # logger.error(f"rsid {rsid} not found in dbsnp_rsid_map, skipping...")
+                    continue
+        print(f"Not processed records: {not_processed} out of {processed + not_processed} records")
+        
+    def get_edges(self):
+        pass

@@ -1,0 +1,431 @@
+# Author Abdulrahman S. Omar <xabush@singularitynet.io>
+import pathlib
+import os
+import re
+from biocypher._logger import logger
+import networkx as nx
+from collections import Counter, defaultdict
+
+from biocypher_metta import BaseWriter
+
+class MeTTaWriter(BaseWriter):
+
+    def __init__(self, schema_config, biocypher_config,
+                 output_dir, include_curie: bool = False):
+        super().__init__(schema_config, biocypher_config, output_dir, include_curie=include_curie)
+
+        # Initialize edge node types for tuple handling
+        self.edge_node_types = {}
+
+        # Build mapping of labels to whether they are ontology terms from schema
+        self.label_is_ontology = self._build_label_types_map()
+        self.create_type_hierarchy()
+        self.excluded_properties = []
+
+    def _build_label_types_map(self):
+        schema = self.bcy._get_ontology_mapping()._extend_schema()
+        label_is_ontology = {}
+
+        ontology_types = set()
+        for schema_type, config in schema.items():
+            if config.get("represented_as") == "node":
+                is_a = config.get("is_a")
+                normalized_schema_type = self.normalize_text(schema_type)
+                if normalized_schema_type == "ontology_term":
+                    ontology_types.add(normalized_schema_type)
+                elif is_a:
+                    parent_types = [is_a] if isinstance(is_a, str) else is_a
+                    for parent in parent_types:
+                        if self.normalize_text(parent) == "ontology_term":
+                            ontology_types.add(normalized_schema_type)
+                            break
+
+        for schema_type, config in schema.items():
+            if config.get("represented_as") == "node":
+                input_label = config.get("input_label")
+
+                if isinstance(input_label, list):
+                    labels_to_process = input_label
+                else:
+                    labels_to_process = [input_label]
+
+                normalized_schema_type = self.normalize_text(schema_type)
+                is_ontology = normalized_schema_type in ontology_types
+
+                for label in labels_to_process:
+                    normalized_label = label.split(".")[-1] if "." in label else label
+                    normalized_label = self.normalize_text(normalized_label)
+                    label_is_ontology[normalized_label] = is_ontology
+
+        return label_is_ontology
+
+    def _is_ontology_label(self, label):
+        normalized_label = self.normalize_text(label) if label else None
+        return self.label_is_ontology.get(normalized_label, False)
+
+    def create_type_hierarchy(self):
+        G = self.ontology._nx_graph
+        file_path = f"{self.output_path}/type_defs.metta"
+        with open(file_path, "w") as f:
+            for node in G.nodes:
+                if "mixin" in node: continue
+                ancestor = list(self.get_parent(G, node))[-1]
+                node = self.normalize_text(node)
+                ancestor = self.normalize_text(ancestor)
+                if ancestor == node:
+                    f.write(f"(: {node.upper()} Type)\n")
+                else:
+                    f.write(f"(<: {node.upper()} {ancestor.upper()})\n")
+
+            self.create_data_constructors(f)
+        logger.info("Type hierarchy created successfully.")
+
+
+    def create_data_constructors(self, file):
+        schema = self.bcy._get_ontology_mapping()._extend_schema()
+        
+        def edge_data_constructor(edge_type, source_type, target_type, label):
+            return f"(: {label.lower()} (-> {source_type.upper()} {target_type.upper()} {edge_type.upper()}))"
+
+        def node_data_constructor(node_type, node_label):
+            return f"(: {node_label.lower()} (-> $x {node_type.upper()}))"
+
+        for k, v in schema.items():
+            if v["represented_as"] == "edge":
+                edge_type = self.normalize_text(k)
+                source_type = v.get("source", None)
+                target_type = v.get("target", None)
+
+                if source_type is not None and target_type is not None:
+                    input_label = self.normalize_text(v["input_label"])
+                    source_type_normalized = self.normalize_text(source_type)
+                    target_type_normalized = self.normalize_text(target_type)
+
+                    output_label = v.get("output_label", None)
+                    constructor_label = self.normalize_text(output_label) if output_label else input_label
+
+                    if '.' not in k:
+                        src_list = source_type_normalized if isinstance(source_type_normalized, list) else [source_type_normalized]
+                        tgt_list = target_type_normalized if isinstance(target_type_normalized, list) else [target_type_normalized]
+                        for src in src_list:
+                            for tgt in tgt_list:
+                                out_str = edge_data_constructor(edge_type, src, tgt, constructor_label)
+                                file.write(out_str + "\n")
+
+                        if input_label not in self.edge_node_types:
+                            self.edge_node_types[input_label] = {
+                                "source": source_type_normalized,
+                                "target": target_type_normalized,
+                                "output_label": output_label
+                            }
+
+            elif v["represented_as"] == "node":
+                label = self.normalize_text(v["input_label"])
+                node_type = self.normalize_text(k)
+        
+                if isinstance(label, list):
+                    labels_to_process = label
+                else:
+                    labels_to_process = [label]
+            
+                for l in labels_to_process:
+                    out_str = node_data_constructor(node_type, l)
+                    file.write(out_str + "\n")
+
+    def preprocess_id(self, prev_id, label=None):
+        """
+        Clean ID, preserving CURIE prefixes for ontology terms or when include_curie is True.
+        """
+        prev_id = str(prev_id)
+
+        if ':' in prev_id:
+            prefix, local_id = prev_id.split(':', 1)
+
+            if (label and self._is_ontology_label(label)) or self.include_curie:
+                clean_id = f"{prefix.strip().upper()}_{local_id.strip().replace(' ', '_').upper()}"
+                return clean_id
+            else:
+                return local_id.strip().replace(' ', '_').upper()
+
+        return prev_id.strip().replace(' ', '_').upper()
+
+    def write_nodes(self, nodes, path_prefix=None, create_dir=True):
+        # Set up output directory
+        if path_prefix is not None:
+            output_dir = f"{self.output_path}/{path_prefix}"
+            if create_dir:
+                pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+        else:
+            output_dir = self.output_path
+
+        # Each unique node label gets its own file handle
+        file_handles = {}
+
+        try:
+            for node in nodes:
+                id, label, properties = node
+                if not self.check_node_label(label):
+                    raise ValueError(f"Invalid node label: {label}. This label is not defined in the schema configuration. Please check your adapter or schema config.")
+                self.extract_node_info(node)  # Count nodes and extract node properties
+
+                if "." in label:
+                    label = label.split(".")[-1]
+                label = label.lower()
+
+                if label not in file_handles:
+                    file_path = f"{output_dir}/nodes_{label}.metta"
+                    file_handles[label] = open(file_path, "w")
+
+                out_str = self.write_node(node)
+                for s in out_str:
+                    file_handles[label].write(s + "\n")
+
+        finally:
+            # Always close all open file handles, even if an exception occurs
+            for fh in file_handles.values():
+                try:
+                    fh.write("\n")
+                    fh.close()
+                except Exception:
+                    pass
+
+        # logger.info("Finished writing out nodes")
+        return self.node_freq, self.node_props
+
+    def write_edges(self, edges, path_prefix=None, create_dir=True):
+        if path_prefix is not None:
+            output_dir = f"{self.output_path}/{path_prefix}"
+            if create_dir:
+                pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+        else:
+            output_dir = self.output_path
+
+        # Each unique (label, source_type, target_type) gets its own file handle
+        file_handles = {}
+
+        try:
+            for edge in edges:
+                source_id, target_id, label, properties = edge
+                if not self.check_edge_label(label):
+                    raise ValueError(f"Invalid edge label: {label}. This label is not defined in the schema configuration. Please check your adapter or schema config.")
+                self.extract_edge_info(edge)  # Count edges
+
+                label = label.lower()
+                if label in self.edge_node_types and self.edge_node_types[label]["output_label"] is not None:
+                    output_label = self.edge_node_types[label]["output_label"]
+                    label_to_use = output_label
+                else:
+                    label_to_use = label
+
+                # Resolve source and target types
+                if isinstance(source_id, tuple):
+                    source_type = source_id[0]
+                else:
+                    edge_info = self.edge_node_types.get(label, {})
+                    source_type = edge_info.get("source", "unknown")
+                    if isinstance(source_type, list):
+                        source_type = source_type[0]
+
+                if isinstance(target_id, tuple):
+                    target_type = target_id[0]
+                else:
+                    edge_info = self.edge_node_types.get(label, {})
+                    target_type = edge_info.get("target", "unknown")
+                    if isinstance(target_type, list):
+                        target_type = target_type[0]
+
+                if isinstance(source_id, tuple) or isinstance(target_id, tuple):
+                    self.validate_edge_types(label, source_type, target_type)
+
+                file_key = (label, source_type, target_type)
+
+                if file_key not in file_handles:
+                    file_suffix = f"{source_type}_{label_to_use}_{target_type}"
+                    file_path = f"{output_dir}/edges_{file_suffix}.metta"
+                    file_handles[file_key] = open(file_path, "w")
+
+                out_str = self.write_edge(edge)
+                for s in out_str:
+                    file_handles[file_key].write(s + "\n")
+
+        finally:
+            # Always close all open file handles, even if an exception occurs
+            for fh in file_handles.values():
+                try:
+                    fh.write("\n")
+                    fh.close()
+                except Exception:
+                    pass
+
+        return self.edge_freq
+
+    def write_node(self, node):
+        id, label, properties = node
+        # Determine if this is an ontology term label
+        label_to_check = label.split(".")[1] if "." in label else label
+        is_ontology = self._is_ontology_label(label_to_check)
+        # Pass label for ontology-aware processing
+        id = self.preprocess_id(str(id), label=label_to_check if is_ontology else None)
+        if "." in label:
+            label = label.split(".")[1]
+        def_out = f"({self.normalize_text(label)} {id})"
+        return self.write_property(def_out, properties)
+
+
+    def write_edge(self, edge):
+        source_id, target_id, label, properties = edge
+        source_id_processed = source_id
+        target_id_processed = target_id
+        label = label.lower()
+
+        if isinstance(source_id, tuple):
+            source_type = source_id[0]
+            # Pass label for ontology-aware processing
+            source_id_processed = self.preprocess_id(str(source_id[1]), label=source_type)
+        else:
+            if label in self.edge_node_types:
+                source_type_info = self.edge_node_types[label]["source"]
+                if isinstance(source_type_info, list):
+                    source_type = source_type_info[0]
+                else:
+                    source_type = source_type_info
+            else:
+                source_type = "unknown"
+            # Pass label for ontology-aware processing
+            source_id_processed = self.preprocess_id(str(source_id), label=source_type)
+
+        if isinstance(target_id, tuple):
+            target_type = target_id[0]
+            # Pass label for ontology-aware processing
+            target_id_processed = self.preprocess_id(str(target_id[1]), label=target_type)
+        else:
+            if label in self.edge_node_types:
+                target_type_info = self.edge_node_types[label]["target"]
+                if isinstance(target_type_info, list):
+                    target_type = target_type_info[0]
+                else:
+                    target_type = target_type_info
+            else:
+                target_type = "unknown"
+            # Pass label for ontology-aware processing
+            target_id_processed = self.preprocess_id(str(target_id), label=target_type)
+
+        output_label = None
+        if label in self.edge_node_types and self.edge_node_types[label]["output_label"] is not None:
+            output_label = self.edge_node_types[label]["output_label"]
+            label_to_use = output_label
+        else:
+            label_to_use = label
+
+
+        if isinstance(source_type, list):
+            def_out = ""
+            for a_source_type in source_type:
+                def_out += f"({label_to_use} ({a_source_type} {source_id_processed}) ({target_type} {target_id_processed}))" + "\n"
+            def_out = def_out.rstrip('\n')
+        else:
+            def_out = f"({label_to_use} ({source_type} {source_id_processed}) ({target_type} {target_id_processed}))"
+
+        return self.write_property(def_out, properties)
+
+    def write_property(self, def_out, property):
+        out_str = [def_out]
+        for k, v in property.items():
+            if k in self.excluded_properties or v is None or v == "": 
+                continue
+            
+            if k == 'biological_context':
+                out_str.append(f'({k} {def_out} {self.check_biological_context(v)})')
+                    
+            elif isinstance(v, list):
+                # Handle lists by decomposing into individual facts
+                for item in v:
+                    if isinstance(item, tuple):
+                        tuple_str = "("
+                        for el in item:
+                            tuple_str += f'{self.check_property(el)} '
+                        tuple_str = tuple_str.rstrip() + ")"
+                        out_str.append(f'({k} {def_out} {tuple_str})')
+                    elif isinstance(item, dict):
+                        # Handle list of dictionaries
+                        for sub_k, sub_v in item.items():
+                            if isinstance(sub_v, list):
+                                for sub_item in sub_v:
+                                    out_str.append(f'({sub_k} {def_out} {self.check_property(sub_item)})')
+                            else:
+                                out_str.append(f'({sub_k} {def_out} {self.check_property(sub_v)})')
+                    else:
+                        out_str.append(f'({k} {def_out} {self.check_property(item)})')
+            elif isinstance(v, dict):
+                prop = f"({k} {def_out})"
+                out_str.extend(self.write_property(prop, v))
+            else:
+                out_str.append(f'({k} {def_out} {self.check_property(v)})')
+        return out_str
+    
+    def check_property(self, prop):
+        if not isinstance(prop, str):
+            return str(prop)
+
+        raw = prop.strip()
+
+        # to detect urls and treat them as data than symbols
+        if (
+            raw.startswith(("http://", "https://", "ftp://", "ftps://")) or
+            (raw.startswith("www.") and "." in raw[4:])
+        ):
+            return raw
+
+        # Strip CURIE prefixes from property values (unless include_curie is set)
+        if not self.include_curie and ':' in raw and not raw.startswith(('http://', 'https://', 'ftp://', 'ftps://')):
+            _, local_part = raw.split(':', 1)
+            raw = local_part.strip()
+
+        prop = raw.replace(" ", "_").strip("_")
+        prop = prop.replace("->", "-")
+        prop = re.sub(r"[^a-zA-Z0-9_:\.-]", "", prop)
+
+        return prop
+    
+    def check_biological_context(self, context):
+        if context is None or context == "":
+            return None
+        try:
+            ontology_id = context.upper().replace('_', ':')
+            ontology_name = ontology_id.split(':')[0].lower()
+            ontology_dict = {'cl': 'cell_type', 'uberon': 'anatomy', 'clo': 'cell_line', 'efo': 'experimental_factor', 'bto': 'tissue', 'wbbt': 'anatomy', 'emapa': 'anatomy'}
+            ontology_name = ontology_dict.get(ontology_name, None)
+            ontology_id = ontology_id.replace(':', '_')
+            return f'({ontology_name} {ontology_id})'
+        except Exception as e:
+            # print(f"An error occurred while processing the biological context '{context}': {e}.")
+            return self.check_property(context)
+
+    # def check_property(self, prop):
+    #     if isinstance(prop, str):
+    #         prop = prop.replace(" ", "_").strip("_")
+    #         prop = prop.replace("->", "-")
+
+    #         # Keep only letters, numbers, underscores, colons, and hyphens
+    #         prop = re.sub(r"[^a-zA-Z0-9_:\.-]", "", prop)
+
+    #     return str(prop)
+        
+    def normalize_text(self, label, replace_char="_", lowercase=True):
+        if isinstance(label, list):
+            labels = []
+            for aLabel in label:
+                processed = aLabel.replace(" ", replace_char)
+                labels.append(processed.lower() if lowercase else processed)
+            return labels
+        processed = label.replace(" ", replace_char)
+        return processed.lower() if lowercase else processed
+
+    def get_parent(self, G, node):
+        return nx.dfs_preorder_nodes(G, node, depth_limit=2)
+
+    def show_ontology_structure(self):
+        self.bcy.show_ontology_structure()
+
+    def summary(self):
+        self.bcy.summary()

@@ -1,0 +1,149 @@
+import csv
+import gzip
+import pickle
+from biocypher_metta.adapters import Adapter
+from biocypher_metta.processors import HGNCProcessor
+from biocypher._logger import logger
+
+# Human data:
+# https://epd.expasy.org/ftp/epdnew/H_sapiens/
+
+# Example EPD bed input file:
+##CHRM Start  End   Id  Score Strand -  -
+# chr1 959245 959305 NOC2L_1 900 - 959245 959256
+# chr1 960583 960643 KLHL17_1 900 + 960632 960643
+# chr1 966432 966492 PLEKHN1_1 900 + 966481 966492
+# chr1 976670 976730 PERM1_1 900 - 976670 976681
+
+
+# Fly data:
+# https://epd.expasy.org/ftp/epdnew/D_melanogaster/
+
+# chr2L 7456 7516 CG11023_1 900 + 7505 7516
+# chr2L 18617 18677 l(2)gl_1 900 - 18617 18628
+# chr2L 25167 25227 Ir21a_1 900 - 25167 25178
+# chr2L 59231 59291 Cda5_1 900 - 59231 59242
+
+# CEL data:
+# https://epd.expasy.org/ftp/epdnew/C_elegans/current/
+
+# Mouse data:
+# https://epd.expasy.org/ftp/epdnew/M_musculus/ 
+
+
+# Rat data:
+# https://epd.expasy.org/ftp/epdnew/R_norvegicus/
+
+
+class EPDAdapter(Adapter):
+    INDEX = {'chr' : 0, 'coord_start' : 1, 'coord_end' : 2, 'gene_id' : 3}
+
+    CURIE_PREFIX = {
+        7227: 'FlyBase',
+        9606: 'ENSEMBL'
+    }
+
+    def __init__(self, filepath, label, hgnc_to_ensembl_map=None, write_properties=None, add_provenance=None, taxon_id=9606,
+                 type='promoter', delimiter=' ', chr=None, start=None, end=None,
+                 hgnc_processor=None):
+        self.filepath = filepath
+
+        # Use provided processor or create new one for human; fallback to pickle for other species
+        if hgnc_processor is not None:
+            self.hgnc_processor = hgnc_processor
+            self.hgnc_to_ensembl_map = None
+        elif hgnc_to_ensembl_map is not None and taxon_id != 9606:
+            self.hgnc_to_ensembl_map = pickle.load(open(hgnc_to_ensembl_map, 'rb'))
+            self.hgnc_processor = None
+        else:
+            self.hgnc_processor = HGNCProcessor()
+            self.hgnc_processor.load_or_update()
+            self.hgnc_to_ensembl_map = None
+        self.type = type
+        self.label = label
+        self.delimiter = delimiter
+        self.chr = chr
+        self.start = start
+        self.end = end
+        self.taxon_id = taxon_id
+        self.source = 'EPD'
+        self.version = '006'
+        if self.taxon_id == 7227:
+            self.source_url = 'https://epd.expasy.org/ftp/epdnew/D_melanogaster/'
+        else:
+            self.source_url = 'https://epd.expasy.org/ftp/epdnew/H_sapiens/'
+
+        super(EPDAdapter, self).__init__(write_properties, add_provenance)
+
+    def get_nodes(self):
+        """
+        Build a node for each promoter in the EPD BED file
+        """
+        from biocypher_metta.adapters.helpers import build_regulatory_region_id, check_genomic_location
+
+        opener = gzip.open if self.filepath.endswith('.gz') else open
+        with opener(self.filepath, 'rt') as f:
+            reader = csv.reader(f, delimiter=self.delimiter)
+            for line in reader:
+                chr = line[EPDAdapter.INDEX['chr']]
+                coord_start = int(line[EPDAdapter.INDEX['coord_start']]) + 1 # +1 since it is 0 indexed coordinate
+                coord_end = int(line[EPDAdapter.INDEX['coord_end']])
+                promoter_id = f"EPD:{build_regulatory_region_id(chr, coord_start, coord_end)}"
+
+                if check_genomic_location(self.chr, self.start, self.end, chr, coord_start, coord_end):
+                    props = {}
+                    if self.write_properties:
+                        props['chr'] = chr
+                        props['start'] = coord_start
+                        props['end'] = coord_end
+                        props['taxon_id'] = f'{self.taxon_id}'
+
+                        if self.add_provenance:
+                            props['source'] = self.source
+                            props['source_url'] = self.source_url
+
+                    yield promoter_id, self.label, props
+
+    def get_edges(self):
+        """
+        Build an edge for each promoter-gene interaction in the EPD BED file.
+        """
+        from biocypher_metta.adapters.helpers import build_regulatory_region_id, check_genomic_location
+
+        opener = gzip.open if self.filepath.endswith('.gz') else open
+        with opener(self.filepath, 'rt') as f:
+            reader = csv.reader(f, delimiter=self.delimiter)
+            not_found_symbols = 0
+            for line in reader:
+                chr = line[EPDAdapter.INDEX['chr']]
+                coord_start = int(line[EPDAdapter.INDEX['coord_start']]) + 1 # +1 since it is 0 indexed coordinate
+                coord_end = int(line[EPDAdapter.INDEX['coord_end']])
+                gene_id = line[EPDAdapter.INDEX['gene_id']].split('_')[0]
+                if self.hgnc_processor is not None:
+                    ensembl_id = self.hgnc_processor.get_ensembl_id(gene_id)
+                    if ensembl_id is None:
+                        continue
+                    ensembl_gene_id = f"ENSEMBL:{ensembl_id}"
+                elif self.taxon_id == 7227:
+                    fbgn = self.hgnc_to_ensembl_map.get(gene_id, None)
+                    ensembl_gene_id = f"FlyBase:{fbgn}" if fbgn else None
+                else:
+                    mapped_id = self.hgnc_to_ensembl_map.get(gene_id, None)
+                    ensembl_gene_id = f"ENSEMBL:{mapped_id}" if mapped_id else None
+                if ensembl_gene_id is None:
+                    continue
+                
+                # if ensembl_gene_id is None:
+                #     not_found_symbols += 1
+                    # print(f"gene_id: {gene_id}  // {ensembl_gene_id}   --->  {self.taxon_id}")                       
+                ensembl_gene_id = f"{ensembl_gene_id}"
+
+                if check_genomic_location(self.chr, self.start, self.end, chr, coord_start, coord_end):
+                    promoter_id = f"EPD:{build_regulatory_region_id(chr, coord_start, coord_end)}"
+                    props = {}
+                    if self.write_properties:
+                        if self.add_provenance:
+                            props['source'] = self.source
+                            props['source_url'] = self.source_url
+
+                    yield promoter_id, ensembl_gene_id, self.label, props

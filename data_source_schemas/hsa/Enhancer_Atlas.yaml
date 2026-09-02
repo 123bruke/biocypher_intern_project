@@ -1,0 +1,22 @@
+name: Enhancer Atlas
+website: http://singlecelldb.com
+nodes:
+  enhancer:
+    url: http://singlecelldb.com/downloadv2.php
+    input_label: enhancer
+    properties:
+      biological_context: str
+      chr: str
+      end: int
+      start: int
+relationships:
+  enhancer to gene association:
+    url: http://singlecelldb.com/downloadv2.php
+    input_label: enhancer_gene
+    output_label: associated_with
+    description: An association between an enhancer and a gene
+    source: enhancer
+    target: gene
+    properties:
+      biological_context: str
+      score: float

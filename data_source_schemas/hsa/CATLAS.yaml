@@ -1,0 +1,79 @@
+name: CATLAS
+website: https://catlas.org
+nodes:
+  promoter:
+    url: https://catlas.org/
+    input_label: promoter
+    properties:
+      ccre_module: int
+      chr: str
+      development_stage: str[]
+      end: int
+      start: int
+      taxon_id: str
+  enhancer:
+    url: https://catlas.org/
+    input_label: enhancer
+    properties:
+      ccre_module: int
+      chr: str
+      development_stage: str[]
+      end: int
+      start: int
+      taxon_id: str
+relationships:
+  enhancer accessible in cell type:
+    url: https://catlas.org/
+    input_label: enhancer_accessible_in_cell_type
+    output_label: accessible_in
+    description: An enhancer shows open chromatin in a cell type (CL term) as profiled
+      by scATAC-seq in the CATLAS dataset.
+    source: enhancer
+    target: cell type
+  enhancer accessible in tissue:
+    url: https://catlas.org/
+    input_label: enhancer_accessible_in_tissue
+    output_label: accessible_in
+    description: An enhancer shows open chromatin in a tissue (UBERON term) as profiled
+      by scATAC-seq in the CATLAS dataset.
+    source: enhancer
+    target: anatomy
+  promoter accessible in cell type:
+    url: https://catlas.org/
+    input_label: promoter_accessible_in_cell_type
+    output_label: accessible_in
+    description: A promoter shows open chromatin in a cell type (CL term) as profiled
+      by scATAC-seq in the CATLAS dataset.
+    source: promoter
+    target: cell type
+  promoter accessible in tissue:
+    url: https://catlas.org/
+    input_label: promoter_accessible_in_tissue
+    output_label: accessible_in
+    description: A promoter shows open chromatin in a tissue (UBERON term) as profiled
+      by scATAC-seq in the CATLAS dataset.
+    source: promoter
+    target: anatomy
+  enhancer activity by contact:
+    url: https://catlas.org/
+    input_label: enhancer_activity_by_contact
+    output_label: activity_by_contact
+    description: An association between an enhancer cCRE and a gene predicted by the
+      ABC model (Activity-By-Contact, Fulco et al. 2019) using CATLAS single-cell
+      chromatin accessibility data, or by ENCODE rE2G.
+    source: enhancer
+    target: gene
+    properties:
+      biological_context: str
+      distance: int
+      score: float
+      taxon_id: str
+  promoter to gene association:
+    url: https://catlas.org/
+    input_label: promoter_gene
+    output_label: associated_with
+    description: An association between a promoter and a gene
+    source: promoter
+    target: gene
+    properties:
+      biological_context: str

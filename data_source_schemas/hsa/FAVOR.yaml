@@ -1,0 +1,14 @@
+name: FAVOR
+website: http://favor.genohub.org
+nodes:
+  snp:
+    url: http://favor.genohub.org/
+    input_label: snp
+    description: A single nucleotide polymorphism (SNP) is a variation in a single
+      nucleotide that occurs at a specific position in the genome
+    properties:
+      alt: str
+      chr: str
+      end: int
+      ref: str
+      start: int
