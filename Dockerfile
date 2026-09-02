@@ -10,7 +10,7 @@
 # Open:   http://localhost:9000/console/
 
 # ---- Stage 1: build the frontend ----
-FROM node:20-slim AS frontend
+FROM node:26-slim AS frontend
 WORKDIR /fe
 COPY kg-service/frontend/package.json kg-service/frontend/package-lock.json ./
 RUN npm ci
