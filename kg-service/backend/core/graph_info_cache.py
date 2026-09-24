@@ -4,11 +4,14 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 from backend.core.neo4j_client import neo4j_client
+from backend.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_CACHE_FILE = str(settings.repo_root_path / "kg-service" / "graph_info.json")
+
 class GraphInfoCache:
-    def __init__(self, cache_file: str = "/mnt/hdd_1/abdu_md/kg-service/annotation-dashboard/neo4j_graph_info.json"):
+    def __init__(self, cache_file: str = _DEFAULT_CACHE_FILE):
         """
         Initialize graph info cache.
         
@@ -136,6 +139,4 @@ class GraphInfoCache:
         return int(age.total_seconds() / 60)
 
 # Global instance
-graph_info_cache = GraphInfoCache(
-    cache_file="/mnt/hdd_1/abdu_md/kg-service/annotation-dashboard/neo4j_graph_info.json"  # ← Change this path as needed
-)
+graph_info_cache = GraphInfoCache()

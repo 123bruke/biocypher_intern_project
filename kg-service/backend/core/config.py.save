@@ -13,11 +13,11 @@ class Settings(BaseSettings):
     # The bolt port is the HOST-side port mapped by the compose file (default 7887).
     NEO4J_URI: str = "bolt://localhost:7687"
     NEO4J_USER: str = "neo4j"
-    NEO4J_PASSWORD: str = "neo4j"
+    NEO4J_PASSWORD: str = "YOUR_PASSWORD_HERE"
     NEO4J_DATABASE: str = "neo4j"
-    ARCHIVE_BASE: str = f"{_REPO_ROOT_DEFAULT}/archives"
-    VERSION_DIFF_SCRIPT: str = f"{_REPO_ROOT_DEFAULT}/kg-service/version_diff.py"
-    MORK_SUMMARY_SCRIPT: str = f"{_REPO_ROOT_DEFAULT}/kg-service/get_mork_summary.py"
+    ARCHIVE_BASE: str = "/mnt/hdd_1/biocypher-kg/output/human/biocypher-archives/"
+    VERSION_DIFF_SCRIPT: str = "/home/abdum/services/biocypher-kg/version_diff.py"
+    MORK_SUMMARY_SCRIPT: str = "/home/abdum/services/biocypher-kg/get_mork_summary.py"
     MORK_URL: str = "http://localhost:8432"
     MORK_LIVE_STATS_ENABLED: bool = False
 

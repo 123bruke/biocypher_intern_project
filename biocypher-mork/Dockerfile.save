@@ -37,26 +37,7 @@ RUN git clone --depth=1 https://github.com/Adam-Vandervorst/PathMap.git /app/Pat
     cargo build --release
 
 # Build MORK Server (server branch)
-# MORK pins `pathmap` to PathMap's git `master` (server branch Cargo.toml), but
-# MORK's code was written against an older PathMap API where
-# descend_first_byte()/to_next_sibling_byte() returned bool. PathMap HEAD now
-# returns Option<u8>, breaking those boolean checks (E0308: expected bool,
-# found Option<u8>). All 5 affected call sites in kernel/src/space.rs are used
-# in if/while boolean contexts, so patching them with .is_some() restores the
-# old semantics. Kept on one line-set per method so it survives line drift.
-# PathMap HEAD also moved path()/move_to_path()/origin_path() behind the
-# ZipperPath trait, but MORK's server/src/commands.rs does not import it
-# (E0599: method not found on SpaceReaderZipper/SpaceWriterZipper). Adding
-# ZipperPath to the existing pathmap::zipper use-statement fixes that.
 RUN git clone --depth=1 -b server https://github.com/Abdu1964/MORK.git /app/MORK_SERVER && \
-    cd /app/MORK_SERVER && \
-    sed -i \
-      -e 's/loc\.descend_first_byte()/loc.descend_first_byte().is_some()/g' \
-      -e 's/loc\.to_next_sibling_byte()/loc.to_next_sibling_byte().is_some()/g' \
-      kernel/src/space.rs && \
-    sed -i \
-      -e 's/ZipperAbsolutePath}/ZipperAbsolutePath, ZipperPath}/' \
-      server/src/commands.rs && \
     cd /app/MORK_SERVER/server && cargo build --release
 
 # RUN git clone https://github.com/trueagi-io/MORK.git /app/MORK && \  
@@ -88,5 +69,53 @@ USER mork
 EXPOSE 8027
 
 ENTRYPOINT ["/app/entrypoint.sh"]
+
+RUN git clone --depth=1 -b server https://github.com/Abdu1964/MORK.git /app/MORK_SERVER && \
+    cd /app/MORK_SERVER && \
+    sed -i \
+      -e '248s/if loc.descend_first_byte()/if loc.descend_first_byte().is_some()/' \
+      -e '250s/loc.to_next_sibling_byte()/loc.to_next_sibling_byte().is_some()/' \
+      -e '262s/loc.to_next_sibling_byte()/loc.to_next_sibling_byte().is_some()/' \
+      -e '268s/loc.to_next_sibling_byte()/loc.to_next_sibling_byte().is_some()/' \
+      -e '269s/loc.descend_first_byte()/loc.descend_first_byte().is_some()/' \
+      kernel/src/space.rs && \
+    cd /app/MORK_SERVER/server && \
+    cargo build --relea
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

@@ -86,7 +86,6 @@ class KGXWriter(BaseWriter):
 
     def create_node_types(self):
         schema = self.bcy._get_ontology_mapping()._extend_schema()
-        
         for k, v in schema.items():
             if v.get("represented_as") == "node":
                 if isinstance(v["input_label"], list):

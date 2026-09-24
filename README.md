@@ -4,6 +4,7 @@ A project for creating [BioCypher-driven](https://github.com/biocypher/biocypher
 
 ## Web Console
 
+
 A web UI for configuring builds, launching them, and loading the output into Neo4j/MORK — an alternative to the CLI. It runs the whole stack (Console + Neo4j, plus optional MORK) with a single Docker command.
 
 ```bash

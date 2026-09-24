@@ -1,0 +1,38 @@
+{
+  "node_count": 104,
+  "edge_count": 0,
+  "last_updated_at": null,
+  "dataset_count": 0,
+  "data_size": "calculating...",
+  "top_entities": [
+    {
+      "name": "anatomy",
+      "count": 101
+    }
+  ],
+  "top_connections": [],
+  "frequent_relationships": [],
+  "schema": {
+    "nodes": [
+      {
+        "data": {
+          "id": "anatomy",
+          "properties": [
+            "alternative_ids",
+            "synonym",
+            "term_name"
+          ]
+        }
+      }
+    ],
+    "edges": []
+  },
+  "datasets": [],
+  "top_entites": [
+    {
+      "name": "anatomy",
+      "count": 101
+    }
+  ],
+  "generated_at": "2026-09-23T15:58:16.685432"
+}

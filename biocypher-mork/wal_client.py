@@ -116,3 +116,4 @@ class WalMORK:
     def work_at(self, *args, **kwargs):
         child_mork = self._mork.work_at(*args, **kwargs)
         return WalMORK(child_mork, wal_path=self.wal_path, sync_writes=self.sync_writes, host_data_dir=self.host_data_dir, lock=self._wal_lock)
+
